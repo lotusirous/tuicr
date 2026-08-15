@@ -5,7 +5,9 @@ use crate::app::*;
 use crate::config::{MacroConfig, MacroStep};
 use crate::forge::traits::{ForgeRepository, PrSessionKey};
 use crate::handler::run_colon_command;
+use crate::model::CommentType;
 use crate::model::diff_types::{DiffHunk, DiffLine, FileStatus, LineOrigin};
+use crate::review_store::CommentLevel;
 use crate::vcs::traits::{VcsChangeStatus, VcsType};
 
 struct DummyVcs {
@@ -113,39 +115,63 @@ fn make_pr_app() -> App {
 }
 
 #[test]
-fn should_run_colon_command_from_macro_helper() {
+fn should_add_review_comment_via_colon_command() {
     let mut app = make_pr_app();
-    assert!(run_colon_command(&mut app, "submit approve"));
-    assert_eq!(app.input_mode, InputMode::SubmitConfirm);
+    assert!(run_colon_command(&mut app, "comment review LGTM"));
+    assert_eq!(app.session.review_comments.len(), 1);
+    assert_eq!(app.session.review_comments[0].content, "LGTM");
+    assert!(app.session.review_comments[0].comment_type.is_none());
+    assert_eq!(app.input_mode, InputMode::Normal);
 }
 
 #[test]
-fn should_run_submit_approve_macro() {
+fn should_reject_empty_colon_comment() {
     let mut app = make_pr_app();
-    app.load_macros(&[MacroConfig {
-        key: 'c',
-        steps: vec![MacroStep::command("submit approve")],
-    }]);
-
-    app.run_macro('c');
-
-    assert_eq!(app.last_macro_register, Some('c'));
-    assert_eq!(app.input_mode, InputMode::SubmitConfirm);
+    assert!(!run_colon_command(&mut app, "comment review"));
+    assert!(app.session.review_comments.is_empty());
 }
 
 #[test]
-fn should_abort_remaining_steps_when_command_fails() {
+fn should_add_comment_at_level_review() {
+    let mut app = make_pr_app();
+    assert!(app.add_comment_at_level(CommentLevel::Review, "LGTM"));
+    assert_eq!(app.session.review_comments.len(), 1);
+}
+
+#[test]
+fn should_run_lgtm_then_submit_approve_macro() {
     let mut app = make_pr_app();
     app.load_macros(&[MacroConfig {
         key: 'c',
         steps: vec![
-            MacroStep::command("not-a-real-command"),
+            MacroStep::command("comment review LGTM"),
             MacroStep::command("submit approve"),
         ],
     }]);
 
     app.run_macro('c');
 
+    assert_eq!(app.session.review_comments.len(), 1);
+    assert_eq!(app.session.review_comments[0].content, "LGTM");
+    assert_eq!(app.last_macro_register, Some('c'));
+    // Same as `:submit approve` with only review-level comments: confirm modal.
+    assert_eq!(app.input_mode, InputMode::SubmitConfirm);
+}
+
+#[test]
+fn should_abort_remaining_steps_when_comment_fails() {
+    let mut app = make_pr_app();
+    app.load_macros(&[MacroConfig {
+        key: 'c',
+        steps: vec![
+            MacroStep::command("comment review    "),
+            MacroStep::command("submit approve"),
+        ],
+    }]);
+
+    app.run_macro('c');
+
+    assert!(app.session.review_comments.is_empty());
     assert_eq!(app.input_mode, InputMode::Normal);
     assert_eq!(app.last_macro_register, Some('c'));
 }
@@ -163,15 +189,18 @@ fn should_replay_last_macro_with_run_last_macro() {
     let mut app = make_pr_app();
     app.load_macros(&[MacroConfig {
         key: 'a',
-        steps: vec![MacroStep::command("help")],
+        steps: vec![MacroStep::command("comment review once")],
     }]);
     app.run_macro('a');
-    assert_eq!(app.input_mode, InputMode::Help);
-    assert_eq!(app.last_macro_register, Some('a'));
+    assert_eq!(app.session.review_comments.len(), 1);
 
-    app.input_mode = InputMode::Normal;
     app.run_last_macro();
-    assert_eq!(app.input_mode, InputMode::Help);
+    assert_eq!(app.session.review_comments.len(), 2);
+    assert_eq!(app.session.review_comments[1].content, "once");
+    assert_eq!(
+        app.session.review_comments[1].comment_type,
+        CommentType::None
+    );
 }
 
 #[test]
@@ -181,11 +210,12 @@ fn should_stop_macro_after_mode_changing_command() {
         key: 'c',
         steps: vec![
             MacroStep::command("submit approve"),
-            MacroStep::command("help"),
+            MacroStep::command("comment review should not run"),
         ],
     }]);
 
     app.run_macro('c');
 
     assert_eq!(app.input_mode, InputMode::SubmitConfirm);
+    assert!(app.session.review_comments.is_empty());
 }

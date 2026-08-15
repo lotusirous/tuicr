@@ -50,11 +50,11 @@ impl std::str::FromStr for MacroActionKind {
 ///
 /// Config may use the explicit form:
 /// ```toml
-/// { action = "command", cmd = "submit approve" }
+/// { action = "command", cmd = "comment review LGTM" }
 /// ```
 /// or shorthand:
 /// ```toml
-/// { command = "help" }
+/// { command = "submit approve" }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroStep {
@@ -2320,7 +2320,7 @@ scope_line = "no"
 [[macros]]
 key = "c"
 steps = [
-  { command = "help" },
+  { command = "comment review LGTM" },
   { command = "submit approve" },
 ]
 "#,
@@ -2331,7 +2331,7 @@ steps = [
         assert_eq!(
             macros[0].steps,
             vec![
-                MacroStep::command("help"),
+                MacroStep::command("comment review LGTM"),
                 MacroStep::command("submit approve"),
             ]
         );
@@ -2394,18 +2394,18 @@ steps = [{ command = "help" }]
             r#"
 [[macros]]
 key = "c"
-steps = [{ command = "help" }]
+steps = [{ command = "comment review first" }]
 
 [[macros]]
 key = "c"
-steps = [{ command = "version" }]
+steps = [{ command = "comment review second" }]
 "#,
         );
         let macros = &outcome.config.as_ref().expect("config").macros;
         assert_eq!(macros.len(), 1);
         assert_eq!(
             macros[0].steps,
-            vec![MacroStep::command("version")]
+            vec![MacroStep::command("comment review second")]
         );
         assert!(
             outcome
@@ -2441,7 +2441,7 @@ steps = [{ command = "help", typo = true }]
 [[macros]]
 key = "c"
 steps = [
-  { action = "command", cmd = "help" },
+  { action = "command", cmd = "comment review LGTM" },
   { action = "command", cmd = "submit approve" },
 ]
 "#,
@@ -2450,7 +2450,7 @@ steps = [
         assert_eq!(
             macros[0].steps,
             vec![
-                MacroStep::command("help"),
+                MacroStep::command("comment review LGTM"),
                 MacroStep::command("submit approve"),
             ]
         );

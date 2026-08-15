@@ -10,6 +10,7 @@ use crate::forge::submit::SubmitEvent;
 use crate::input::Action;
 use crate::model::{ClearScope, LineSide};
 use crate::output::{copy_text_to_clipboard, export_to_clipboard, generate_export_content};
+use crate::review_store::CommentLevel;
 use crate::text_edit::{
     delete_char_before, delete_word_before, next_char_boundary, prev_char_boundary,
 };
@@ -662,11 +663,64 @@ fn dispatch_colon_command(app: &mut App, cmd: &str) -> Option<CommandAfterDispat
     let cmd = cmd.trim().trim_start_matches(':').trim();
     if let Some(spec) = command_spec_for(cmd) {
         Some(dispatch_command(app, spec.kind))
+    } else if let Some(comment) = parse_comment_command(cmd) {
+        dispatch_comment_command(app, comment)
     } else if let Some((lineno, side)) = parse_lineno_command(cmd) {
         app.go_to_source_line(lineno, side);
         Some(CommandAfterDispatch::ExitCommandMode)
     } else {
         app.set_message(format!("Unknown command: {cmd}"));
+        None
+    }
+}
+
+/// Parsed `:comment [level] <text>` payload (leading `:` already stripped).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CommentCommand {
+    level: CommentLevel,
+    text: String,
+}
+
+/// Parse `comment [level] <text>`. Returns `None` when `cmd` is not a comment command.
+fn parse_comment_command(cmd: &str) -> Option<CommentCommand> {
+    let rest = cmd.strip_prefix("comment")?;
+    let rest = if rest.is_empty() {
+        ""
+    } else {
+        let stripped = rest.strip_prefix(|c: char| c.is_whitespace())?;
+        stripped.trim_start()
+    };
+
+    if rest.is_empty() {
+        return Some(CommentCommand {
+            level: CommentLevel::Review,
+            text: String::new(),
+        });
+    }
+
+    let mut parts = rest.splitn(2, char::is_whitespace);
+    let first = parts.next().unwrap_or("");
+    let remainder = parts.next().unwrap_or("").trim();
+
+    match first.parse::<CommentLevel>() {
+        Ok(level) => Some(CommentCommand {
+            level,
+            text: remainder.to_string(),
+        }),
+        Err(()) => Some(CommentCommand {
+            level: CommentLevel::Review,
+            text: rest.to_string(),
+        }),
+    }
+}
+
+fn dispatch_comment_command(app: &mut App, command: CommentCommand) -> Option<CommandAfterDispatch> {
+    if app.add_comment_at_level(command.level, &command.text) {
+        Some(CommandAfterDispatch::ExitCommandMode)
+    } else {
+        // Recognized but failed (empty text / missing cursor context).
+        // Returning None lets macros abort; interactive command mode still
+        // exits via handle_command_action's None branch.
         None
     }
 }
@@ -1804,7 +1858,8 @@ pub fn handle_submit_confirm_action(app: &mut App, action: Action) {
 
 #[cfg(test)]
 mod command_tests {
-    use super::{CommandKind, command_spec_for};
+    use super::{CommandKind, CommentCommand, command_spec_for, parse_comment_command};
+    use crate::review_store::CommentLevel;
 
     #[test]
     fn parses_relative_line_number_commands() {
@@ -1850,5 +1905,59 @@ mod command_tests {
             command_spec_for("reviewed").map(|spec| spec.kind),
             Some(CommandKind::ToggleShowReviewed)
         );
+    }
+
+    #[test]
+    fn parses_comment_with_explicit_review_level() {
+        assert_eq!(
+            parse_comment_command("comment review LGTM"),
+            Some(CommentCommand {
+                level: CommentLevel::Review,
+                text: "LGTM".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn parses_comment_defaulting_level_to_review() {
+        assert_eq!(
+            parse_comment_command("comment LGTM"),
+            Some(CommentCommand {
+                level: CommentLevel::Review,
+                text: "LGTM".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn parses_comment_file_and_line_levels() {
+        assert_eq!(
+            parse_comment_command("comment file needs tests"),
+            Some(CommentCommand {
+                level: CommentLevel::File,
+                text: "needs tests".to_string(),
+            })
+        );
+        assert_eq!(
+            parse_comment_command("comment line fix the off-by-one"),
+            Some(CommentCommand {
+                level: CommentLevel::Line,
+                text: "fix the off-by-one".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn parses_comment_level_from_str() {
+        assert_eq!("review".parse(), Ok(CommentLevel::Review));
+        assert_eq!("file".parse(), Ok(CommentLevel::File));
+        assert_eq!("line".parse(), Ok(CommentLevel::Line));
+        assert!("praise".parse::<CommentLevel>().is_err());
+    }
+
+    #[test]
+    fn rejects_non_comment_commands() {
+        assert_eq!(parse_comment_command("submit approve"), None);
+        assert_eq!(parse_comment_command("commentfoo"), None);
     }
 }

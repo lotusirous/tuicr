@@ -189,7 +189,8 @@ Repository-managed agent integrations:
 
 - All possible user actions (ScrollDown, NextFile, ToggleReviewed, AddLineComment, PendingAtCommand, etc.)
 - `map_key_to_action(key, mode)` returns the appropriate Action
-- Config `[[macros]]` run via `@` + register (`@@` replays last); steps are colon commands. See `src/app/macros.rs` and docs/CONFIG.md
+- Config `[[macros]]` run via `@` + register (`@@` replays last); steps are colon commands (e.g. `comment review LGTM`). See `src/app/macros.rs` and docs/CONFIG.md
+- `:comment [review|file|line] <text>` silently inserts via typed `CommentLevel` → `CommentTarget` (same core as interactive save)
 
 ### Data Flow
 

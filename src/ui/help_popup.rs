@@ -818,6 +818,13 @@ pub fn render_help(frame: &mut Frame, app: &mut App) {
         ]),
         Line::from(vec![
             Span::styled(
+                "  :comment [review|file|line] <text>",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  Silently add an untyped comment (default level: review)"),
+        ]),
+        Line::from(vec![
+            Span::styled(
                 "  :comments unresolved",
                 Style::default().add_modifier(Modifier::BOLD),
             ),

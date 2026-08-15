@@ -206,6 +206,7 @@ In command mode,
 | `:clip` (`:export`) | Copy review to clipboard |
 | `:copy-url` | Copy the open PR URL to clipboard (PR mode) |
 | `:summary` | Show all pending local-draft comments; `j`/`k` select and `Enter` jumps |
+| `:comment [review|file|line] <text>` | Silently add an untyped comment (`review` default; `file`/`line` use cursor) |
 | `:diff` | Toggle diff view (unified / side-by-side) |
 | `:vim` / `:novim` (`:set vim` / `:set novim`) | Enable/toggle/disable vim modal editing in the comment box (overrides `comment_vim`) |
 | `:commits` | Select commits to review |

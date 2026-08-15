@@ -238,11 +238,11 @@ leader = ";"                  # configurable prefix for leader shortcuts
 comment_vim = false           # vim modal editing in the review comment box
 relative_line_numbers = false # show rendered-row distances in the diff gutter
 
-# Optional: @c runs :help then :submit approve
+# Optional: @c adds review comment "LGTM" then runs :submit approve
 # [[macros]]
 # key = "c"
 # steps = [
-#   { command = "help" },
+#   { command = "comment review LGTM" },
 #   { command = "submit approve" },
 # ]
 

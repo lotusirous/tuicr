@@ -206,6 +206,31 @@ pub enum CommentTarget {
     },
 }
 
+/// Attachment level for `:comment [level] <text>`.
+///
+/// Parsed once from the optional first word after `comment` (parse, don't
+/// validate). The App resolves this into a concrete [`CommentTarget`] using
+/// cursor context for `file` / `line`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommentLevel {
+    Review,
+    File,
+    Line,
+}
+
+impl std::str::FromStr for CommentLevel {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.trim() {
+            "review" => Ok(CommentLevel::Review),
+            "file" => Ok(CommentLevel::File),
+            "line" => Ok(CommentLevel::Line),
+            _ => Err(()),
+        }
+    }
+}
+
 /// Add a local draft comment to an in-memory session.
 ///
 /// This is the shared primitive used by the TUI and by [`ReviewStore`].

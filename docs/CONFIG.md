@@ -51,7 +51,7 @@ backend = "libgit2"
 [[macros]]
 key = "c"
 steps = [
-  { command = "help" },
+  { command = "comment review LGTM" },
   { command = "submit approve" },
 ]
 
@@ -120,7 +120,7 @@ Define reusable step sequences in `config.toml` and run them with vim-style `@` 
 [[macros]]
 key = "c"
 steps = [
-  { command = "help" },
+  { command = "comment review LGTM" },
   { command = "submit approve" },
 ]
 ```
@@ -139,7 +139,7 @@ Each `[[macros]]` entry:
   Explicit form:
 
   ```toml
-  { action = "command", cmd = "submit approve" }
+  { action = "command", cmd = "comment review LGTM" }
   ```
 
   Shorthand (same meaning):
@@ -150,9 +150,9 @@ Each `[[macros]]` entry:
 
 | Action | Params | Effect |
 | ------ | ------ | ------ |
-| `command` | `cmd` | Run a colon command (leading `:` optional). |
+| `command` | `cmd` | Run a colon command (leading `:` optional). Use `:comment [level] <text>` for silent comments. |
 
-Invalid entries warn and are ignored. Duplicate `key`s: last wins (with a warning). No macros are shipped by default. Macros only compose colon commands, so new capabilities grow the command registry, not a parallel macro-action set.
+Invalid entries warn and are ignored. Duplicate `key`s: last wins (with a warning). No macros are shipped by default. Macros only compose colon commands, so new capabilities grow the typed command registry (`CommentLevel`, etc.), not a parallel macro-action set.
 
 ## Themes
 

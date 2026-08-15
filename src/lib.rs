@@ -28,6 +28,6 @@ pub mod vcs;
 pub use error::{Result, TuicrError};
 pub use model::{Comment, CommentType, LineRange, LineSide, ReviewSession, SessionDiffSource};
 pub use review_store::{
-    AddCommentRequest, CommentTarget, ReviewStore, SessionRef, SessionSummary,
+    AddCommentRequest, CommentLevel, CommentTarget, ReviewStore, SessionRef, SessionSummary,
     add_comment_to_session,
 };

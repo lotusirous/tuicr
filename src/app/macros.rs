@@ -1,5 +1,7 @@
 use crate::config::{MacroAction, MacroConfig, MacroStep};
 use crate::handler::run_colon_command;
+use crate::model::CommentType;
+use crate::review_store::{AddCommentRequest, CommentLevel, CommentTarget, add_comment_to_session};
 
 use super::{App, InputMode};
 
@@ -54,6 +56,80 @@ impl App {
     fn run_macro_step(&mut self, step: &MacroStep) -> bool {
         match &step.action {
             MacroAction::Command { command } => run_colon_command(self, command),
+        }
+    }
+
+    /// Silently append an untyped comment at `level` using cursor context for
+    /// file/line, then best-effort autosave.
+    ///
+    /// Used by `:comment [level] <text>` (and therefore by macros that run that
+    /// command). Returns `false` on empty text, missing cursor context, or
+    /// insert failure.
+    pub fn add_comment_at_level(&mut self, level: CommentLevel, text: &str) -> bool {
+        let content = text.trim();
+        if content.is_empty() {
+            self.set_warning("Comment cannot be empty");
+            return false;
+        }
+
+        let (target, success_message) = match level {
+            CommentLevel::Review => (
+                CommentTarget::Review,
+                "Review comment added".to_string(),
+            ),
+            CommentLevel::File => {
+                let Some(path) = self.current_file_path().cloned() else {
+                    self.set_warning("No file under cursor for :comment file");
+                    return false;
+                };
+                (CommentTarget::File { path }, "File comment added".to_string())
+            }
+            CommentLevel::Line => {
+                let Some(path) = self.current_file_path().cloned() else {
+                    self.set_warning("No file under cursor for :comment line");
+                    return false;
+                };
+                let Some((line, side)) = self.get_line_at_cursor() else {
+                    self.set_warning("Move cursor to a diff line for :comment line");
+                    return false;
+                };
+                (
+                    CommentTarget::Line { path, line, side },
+                    format!("Comment added to line {line}"),
+                )
+            }
+        };
+
+        let commit_id = match level {
+            CommentLevel::Review => None,
+            CommentLevel::File | CommentLevel::Line => self.commit_id_for_new_comment(),
+        };
+
+        let request = AddCommentRequest {
+            target,
+            content: content.to_string(),
+            comment_type: CommentType::None,
+            author: self.username.clone(),
+            commit_id,
+        };
+
+        match add_comment_to_session(&mut self.session, request) {
+            Ok(_) => {
+                self.dirty = true;
+                if let Err(e) = self.save_current_session_merging_external() {
+                    // Comment is in-memory; keep going so later macro steps
+                    // (e.g. submit) still see it.
+                    self.set_error(format!("{success_message}; autosave failed: {e}"));
+                } else {
+                    self.set_message(success_message);
+                }
+                self.rebuild_annotations();
+                true
+            }
+            Err(e) => {
+                self.set_error(format!("Could not save comment: {e}"));
+                false
+            }
         }
     }
 
