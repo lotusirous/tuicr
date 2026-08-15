@@ -233,6 +233,7 @@ fn main() -> anyhow::Result<()> {
                 if let Some(leader) = cfg.leader {
                     app.leader_key = leader;
                 }
+                app.load_macros(&cfg.macros);
                 app.comment_vim_enabled = cfg.comment_vim.unwrap_or(false);
                 if let Some(w) = cfg.comment_tab_width {
                     app.comment_tab_width = w;
@@ -510,6 +511,28 @@ fn main() -> anyhow::Result<()> {
                         app.message = None;
                     }
 
+                    // Handle pending @ macro register (`@c` / `@@`).
+                    if app.pending_at {
+                        match key.code {
+                            crossterm::event::KeyCode::Esc => {
+                                app.clear_pending_at();
+                                continue;
+                            }
+                            crossterm::event::KeyCode::Char('@') => {
+                                app.run_last_macro();
+                                continue;
+                            }
+                            crossterm::event::KeyCode::Char(c) => {
+                                app.run_macro(c);
+                                continue;
+                            }
+                            _ => {
+                                app.clear_pending_at();
+                                // Fall through to normal handling
+                            }
+                        }
+                    }
+
                     // Handle pending z command for zz/zt/zb viewport positioning
                     if pending_z {
                         pending_z = false;
@@ -666,22 +689,47 @@ fn main() -> anyhow::Result<()> {
                     // Handle pending command setters (these work in any mode)
                     match action {
                         Action::PendingZCommand => {
+                            app.clear_pending_at();
                             pending_z = true;
+                            pending_shift_z = false;
+                            pending_d = false;
+                            pending_leader = false;
                             app.pending_count = None;
                             continue;
                         }
                         Action::PendingShiftZCommand => {
+                            app.clear_pending_at();
                             pending_shift_z = true;
+                            pending_z = false;
+                            pending_d = false;
+                            pending_leader = false;
                             app.pending_count = None;
                             continue;
                         }
                         Action::PendingDCommand => {
+                            app.clear_pending_at();
                             pending_d = true;
+                            pending_z = false;
+                            pending_shift_z = false;
+                            pending_leader = false;
                             app.pending_count = None;
                             continue;
                         }
                         Action::PendingLeaderCommand => {
+                            app.clear_pending_at();
                             pending_leader = true;
+                            pending_z = false;
+                            pending_shift_z = false;
+                            pending_d = false;
+                            app.pending_count = None;
+                            continue;
+                        }
+                        Action::PendingAtCommand => {
+                            pending_z = false;
+                            pending_shift_z = false;
+                            pending_d = false;
+                            pending_leader = false;
+                            app.begin_pending_at();
                             app.pending_count = None;
                             continue;
                         }

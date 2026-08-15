@@ -636,14 +636,9 @@ pub fn handle_command_action(app: &mut App, action: Action) {
         Action::SubmitInput => {
             app.command_completion = None;
             let cmd = app.command_buffer.trim().to_string();
-            let after_dispatch = if let Some(spec) = command_spec_for(&cmd) {
-                dispatch_command(app, spec.kind)
-            } else if let Some((lineno, side)) = parse_lineno_command(&cmd) {
-                app.go_to_source_line(lineno, side);
-                CommandAfterDispatch::ExitCommandMode
-            } else {
-                app.set_message(format!("Unknown command: {cmd}"));
-                CommandAfterDispatch::ExitCommandMode
+            let after_dispatch = match dispatch_colon_command(app, &cmd) {
+                Some(after) => after,
+                None => CommandAfterDispatch::ExitCommandMode,
             };
             if matches!(after_dispatch, CommandAfterDispatch::ExitCommandMode) {
                 app.exit_command_mode();
@@ -656,6 +651,30 @@ pub fn handle_command_action(app: &mut App, action: Action) {
 
 fn command_spec_for(cmd: &str) -> Option<&'static CommandSpec> {
     COMMAND_SPECS.iter().find(|spec| spec.names.contains(&cmd))
+}
+
+/// Dispatch a colon command by name (leading `:` optional).
+///
+/// Returns `Some(after)` when the command was recognized (registry match or
+/// line-number jump). Returns `None` when the command is unknown (a message
+/// is set on `app`).
+fn dispatch_colon_command(app: &mut App, cmd: &str) -> Option<CommandAfterDispatch> {
+    let cmd = cmd.trim().trim_start_matches(':').trim();
+    if let Some(spec) = command_spec_for(cmd) {
+        Some(dispatch_command(app, spec.kind))
+    } else if let Some((lineno, side)) = parse_lineno_command(cmd) {
+        app.go_to_source_line(lineno, side);
+        Some(CommandAfterDispatch::ExitCommandMode)
+    } else {
+        app.set_message(format!("Unknown command: {cmd}"));
+        None
+    }
+}
+
+/// Run a colon command from outside command mode (e.g. config macros).
+/// Returns `true` if the command was recognized and dispatched.
+pub(crate) fn run_colon_command(app: &mut App, cmd: &str) -> bool {
+    dispatch_colon_command(app, cmd).is_some()
 }
 
 /// CommandCompleter computes command-buffer replacements without mutating App.

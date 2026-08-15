@@ -23,6 +23,8 @@ pub enum Action {
     PendingZCommand,
     PendingShiftZCommand,
     PendingLeaderCommand,
+    /// `@` — wait for a macro register (or second `@` for `@@`).
+    PendingAtCommand,
     ScrollLeft(usize),
     ScrollRight(usize),
     ScrollViewDown(usize),
@@ -197,6 +199,7 @@ fn map_normal_mode(key: KeyEvent, leader_key: char) -> Action {
         (KeyCode::Char('G'), _) => Action::GoToBottom,
         (KeyCode::Char('z'), KeyModifiers::NONE) => Action::PendingZCommand,
         (KeyCode::Char('Z'), _) => Action::PendingShiftZCommand,
+        (KeyCode::Char('@'), KeyModifiers::NONE) => Action::PendingAtCommand,
 
         // File navigation (use _ for modifiers since shift is implicit in the character)
         (KeyCode::Char('}'), _) => Action::NextFile,
@@ -872,6 +875,18 @@ mod tests {
             DEFAULT_LEADER_KEY,
         );
         assert_eq!(action, Action::PendingLeaderCommand);
+    }
+
+    #[test]
+    fn should_map_at_to_pending_at_command_in_normal_mode() {
+        let action = map_key_to_action(key(KeyCode::Char('@')), InputMode::Normal, ';');
+        assert_eq!(action, Action::PendingAtCommand);
+    }
+
+    #[test]
+    fn should_not_map_at_in_command_mode() {
+        let action = map_key_to_action(key(KeyCode::Char('@')), InputMode::Command, ';');
+        assert_eq!(action, Action::InsertChar('@'));
     }
 
     #[test]

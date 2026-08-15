@@ -238,6 +238,14 @@ leader = ";"                  # configurable prefix for leader shortcuts
 comment_vim = false           # vim modal editing in the review comment box
 relative_line_numbers = false # show rendered-row distances in the diff gutter
 
+# Optional: @c runs :help then :submit approve
+# [[macros]]
+# key = "c"
+# steps = [
+#   { command = "help" },
+#   { command = "submit approve" },
+# ]
+
 [[comment_types]]
 id = "issue"
 color = "red"
@@ -257,7 +265,7 @@ on Windows. Local themes may reference a local `syntax_theme = "my-syntax.tmThem
 syntax highlighting. A ready-to-copy example lives at [`examples/tuicr-teal.toml`](examples/tuicr-teal.toml)
 with its matching [`examples/tuicr-teal-syntax.tmTheme`](examples/tuicr-teal-syntax.tmTheme) syntax theme.
 
-Full options, theme resolution precedence, `comment_types` semantics, and `.tuicrignore` rules in
+Full options, theme resolution precedence, `comment_types` semantics, macros (`@` / `@@`), and `.tuicrignore` rules in
 [docs/CONFIG.md](docs/CONFIG.md).
 
 ## Keybindings
@@ -277,6 +285,7 @@ A first-session cheatsheet. Press `?` inside tuicr for the full reference.
 | `i` / `e` (file tree) | Filter files in / out by regex; narrows the tree **and** the diff |
 | `I` / `E` (file tree) | Clear the include / exclude filter |
 | `c` / `C` | Add line / file comment |
+| `@` + register | Run a config macro (`@@` replays last); see [docs/CONFIG.md](docs/CONFIG.md#macros) |
 | `v` / `V` | Visual mode (range comment) |
 | `r` | Toggle file reviewed |
 | `R` | Toggle hunk reviewed |

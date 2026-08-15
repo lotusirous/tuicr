@@ -17,6 +17,68 @@ pub struct CommentTypeConfig {
     pub color: Option<String>,
 }
 
+/// The closed set of actions supported by config-defined macros.
+///
+/// Each variant owns its required, typed parameters so malformed actions
+/// cannot reach the runner. Today macros only compose colon commands; new
+/// capabilities should grow the command registry, not this enum.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MacroAction {
+    Command {
+        command: String,
+    },
+}
+
+/// The action name of a macro step, parsed from the `action` config key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MacroActionKind {
+    Command,
+}
+
+impl std::str::FromStr for MacroActionKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.trim() {
+            "command" => Ok(MacroActionKind::Command),
+            _ => Err(()),
+        }
+    }
+}
+
+/// One step in a config-defined `@` macro.
+///
+/// Config may use the explicit form:
+/// ```toml
+/// { action = "command", cmd = "submit approve" }
+/// ```
+/// or shorthand:
+/// ```toml
+/// { command = "help" }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroStep {
+    pub action: MacroAction,
+}
+
+impl MacroStep {
+    /// Helper: run a colon command.
+    pub fn command(cmd: impl Into<String>) -> Self {
+        Self {
+            action: MacroAction::Command {
+                command: cmd.into(),
+            },
+        }
+    }
+}
+
+/// A user-defined macro bound to a single-character register (`@c`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroConfig {
+    pub key: char,
+    pub steps: Vec<MacroStep>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct ForgeConfig {
@@ -161,6 +223,11 @@ pub struct AppConfig {
     /// `[export]` section settings. `None` means "no override"; downstream
     /// code should treat it as `ExportConfig::default()`.
     pub export: Option<ExportConfig>,
+    /// Config-defined macros executed with `@` + register (and `@@` for last).
+    /// Empty / absent means no macros. Duplicate keys: last wins (with warning).
+    /// Parsed manually from TOML (not via serde) in `parse_macros`.
+    #[serde(skip)]
+    pub macros: Vec<MacroConfig>,
 }
 
 impl AppConfig {
@@ -214,6 +281,7 @@ const KNOWN_KEYS: &[&str] = &[
     "username",
     "forge",
     "export",
+    "macros",
 ];
 
 const FORGE_KNOWN_KEYS: &[&str] = &["comment_type_prefix"];
@@ -458,6 +526,10 @@ fn load_config_from_path(path: &Path) -> Result<ConfigLoadOutcome> {
         export: table
             .get("export")
             .and_then(|v| parse_export(v, &mut warnings)),
+        macros: table
+            .get("macros")
+            .map(|v| parse_macros(v, &mut warnings))
+            .unwrap_or_default(),
     };
 
     for key in table.keys() {
@@ -677,6 +749,273 @@ fn parse_comment_types(
         None
     } else {
         Some(parsed)
+    }
+}
+
+/// Parse `[[macros]]` / `macros = [...]`. Invalid entries are warned and skipped.
+/// Duplicate keys: last valid entry wins, with a warning for the earlier one.
+fn parse_macros(value: &Value, warnings: &mut Vec<String>) -> Vec<MacroConfig> {
+    let Some(items) = value.as_array() else {
+        warnings.push(
+            "Warning: Config key 'macros' must be an array of tables; ignoring value".to_string(),
+        );
+        return Vec::new();
+    };
+
+    let mut by_key: std::collections::HashMap<char, MacroConfig> =
+        std::collections::HashMap::new();
+    // Preserve first-seen order for stable iteration in help/docs; last write wins values.
+    let mut order: Vec<char> = Vec::new();
+
+    for (index, item) in items.iter().enumerate() {
+        let Some(entry) = item.as_table() else {
+            warnings.push(format!(
+                "Warning: Config key 'macros[{index}]' must be a table; ignoring entry"
+            ));
+            continue;
+        };
+
+        for key in entry.keys() {
+            if key != "key" && key != "steps" {
+                warnings.push(format!(
+                    "Warning: Unknown key 'macros[{index}].{key}', ignoring"
+                ));
+            }
+        }
+
+        let Some(key_char) = parse_macro_key(entry, index, warnings) else {
+            continue;
+        };
+
+        let Some(steps) = parse_macro_steps(entry, index, warnings) else {
+            continue;
+        };
+
+        if steps.is_empty() {
+            warnings.push(format!(
+                "Warning: Config key 'macros[{index}].steps' cannot be empty; ignoring entry"
+            ));
+            continue;
+        }
+
+        if by_key.contains_key(&key_char) {
+            warnings.push(format!(
+                "Warning: Duplicate macro key '{key_char}'; later entry overrides earlier one"
+            ));
+        } else {
+            order.push(key_char);
+        }
+
+        by_key.insert(
+            key_char,
+            MacroConfig {
+                key: key_char,
+                steps,
+            },
+        );
+    }
+
+    order
+        .into_iter()
+        .filter_map(|k| by_key.remove(&k))
+        .collect()
+}
+
+fn parse_macro_key(entry: &toml::Table, index: usize, warnings: &mut Vec<String>) -> Option<char> {
+    let Some(raw) = entry.get("key") else {
+        warnings.push(format!(
+            "Warning: Config key 'macros[{index}].key' is required; ignoring entry"
+        ));
+        return None;
+    };
+    let Some(text) = raw.as_str() else {
+        warnings.push(format!(
+            "Warning: Config key 'macros[{index}].key' must be a string; ignoring entry"
+        ));
+        return None;
+    };
+    let mut chars = text.chars();
+    match (chars.next(), chars.next()) {
+        (Some('@'), None) => {
+            warnings.push(format!(
+                "Warning: Config key 'macros[{index}].key' cannot be '@' (reserved for @@); ignoring entry"
+            ));
+            None
+        }
+        (Some(c), None) => Some(c),
+        _ => {
+            warnings.push(format!(
+                "Warning: Config key 'macros[{index}].key' must be a single character; ignoring entry"
+            ));
+            None
+        }
+    }
+}
+
+fn parse_macro_steps(
+    entry: &toml::Table,
+    index: usize,
+    warnings: &mut Vec<String>,
+) -> Option<Vec<MacroStep>> {
+    let Some(raw_steps) = entry.get("steps") else {
+        warnings.push(format!(
+            "Warning: Config key 'macros[{index}].steps' is required; ignoring entry"
+        ));
+        return None;
+    };
+    let Some(items) = raw_steps.as_array() else {
+        warnings.push(format!(
+            "Warning: Config key 'macros[{index}].steps' must be an array; ignoring entry"
+        ));
+        return None;
+    };
+
+    let mut steps = Vec::new();
+    for (step_index, item) in items.iter().enumerate() {
+        let Some(step_table) = item.as_table() else {
+            warnings.push(format!(
+                "Warning: Config key 'macros[{index}].steps[{step_index}]' must be a table; ignoring step"
+            ));
+            continue;
+        };
+
+        match parse_one_macro_step(step_table, index, step_index, warnings) {
+            Some(step) => steps.push(step),
+            None => continue,
+        }
+    }
+
+    Some(steps)
+}
+
+fn parse_one_macro_step(
+    step_table: &toml::Table,
+    index: usize,
+    step_index: usize,
+    warnings: &mut Vec<String>,
+) -> Option<MacroStep> {
+    let has_shorthand_command =
+        step_table.contains_key("command") && !step_table.contains_key("action");
+    let has_action = step_table.contains_key("action");
+
+    let form_count = usize::from(has_shorthand_command) + usize::from(has_action);
+    if form_count != 1 {
+        warnings.push(format!(
+            "Warning: Config key 'macros[{index}].steps[{step_index}]' must be exactly one of action=… or command=…; ignoring step"
+        ));
+        return None;
+    }
+
+    if has_shorthand_command {
+        return parse_shorthand_command(step_table, index, step_index, warnings);
+    }
+    parse_explicit_macro_action(step_table, index, step_index, warnings)
+}
+
+fn parse_shorthand_command(
+    step_table: &toml::Table,
+    index: usize,
+    step_index: usize,
+    warnings: &mut Vec<String>,
+) -> Option<MacroStep> {
+    for key in step_table.keys() {
+        if key != "command" {
+            warnings.push(format!(
+                "Warning: Unknown key 'macros[{index}].steps[{step_index}].{key}', ignoring"
+            ));
+        }
+    }
+    let raw = require_nonempty_step_string(step_table, "command", index, step_index, warnings)?;
+    let cmd = raw.trim_start_matches(':').trim();
+    if cmd.is_empty() {
+        warnings.push(format!(
+            "Warning: Config key 'macros[{index}].steps[{step_index}].command' cannot be empty; ignoring step"
+        ));
+        return None;
+    }
+    Some(MacroStep::command(cmd))
+}
+
+fn parse_explicit_macro_action(
+    step_table: &toml::Table,
+    index: usize,
+    step_index: usize,
+    warnings: &mut Vec<String>,
+) -> Option<MacroStep> {
+    let action = require_nonempty_step_string(step_table, "action", index, step_index, warnings)?;
+
+    let Ok(kind) = action.parse::<MacroActionKind>() else {
+        warnings.push(format!(
+            "Warning: Config key 'macros[{index}].steps[{step_index}].action' unknown value \"{action}\"; ignoring step"
+        ));
+        return None;
+    };
+
+    match kind {
+        MacroActionKind::Command => parse_explicit_command(step_table, index, step_index, warnings),
+    }
+}
+
+fn parse_explicit_command(
+    step_table: &toml::Table,
+    index: usize,
+    step_index: usize,
+    warnings: &mut Vec<String>,
+) -> Option<MacroStep> {
+    warn_unknown_macro_step_keys(step_table, &["action", "cmd"], index, step_index, warnings);
+    let raw = require_nonempty_step_string(step_table, "cmd", index, step_index, warnings)?;
+    let command = raw.trim_start_matches(':').trim();
+    if command.is_empty() {
+        warnings.push(format!(
+            "Warning: Config key 'macros[{index}].steps[{step_index}].cmd' cannot be empty; ignoring step"
+        ));
+        None
+    } else {
+        Some(MacroStep::command(command))
+    }
+}
+
+fn warn_unknown_macro_step_keys(
+    step_table: &toml::Table,
+    known: &[&str],
+    index: usize,
+    step_index: usize,
+    warnings: &mut Vec<String>,
+) {
+    for key in step_table.keys() {
+        if !known.contains(&key.as_str()) {
+            warnings.push(format!(
+                "Warning: Unknown key 'macros[{index}].steps[{step_index}].{key}', ignoring"
+            ));
+        }
+    }
+}
+
+fn require_nonempty_step_string(
+    step_table: &toml::Table,
+    key: &str,
+    index: usize,
+    step_index: usize,
+    warnings: &mut Vec<String>,
+) -> Option<String> {
+    match step_table.get(key).and_then(Value::as_str) {
+        Some(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                warnings.push(format!(
+                    "Warning: Config key 'macros[{index}].steps[{step_index}].{key}' cannot be empty; ignoring step"
+                ));
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        None => {
+            warnings.push(format!(
+                "Warning: Config key 'macros[{index}].steps[{step_index}].{key}' must be a string; ignoring step"
+            ));
+            None
+        }
     }
 }
 
@@ -1970,5 +2309,213 @@ scope_line = "no"
             path,
             PathBuf::from(r"C:\Users\tester\AppData\Roaming\tuicr\themes")
         );
+    }
+
+    // macros
+
+    #[test]
+    fn should_parse_valid_macro() {
+        let outcome = parse_config(
+            r#"
+[[macros]]
+key = "c"
+steps = [
+  { command = "help" },
+  { command = "submit approve" },
+]
+"#,
+        );
+        let macros = &outcome.config.as_ref().expect("config").macros;
+        assert_eq!(macros.len(), 1);
+        assert_eq!(macros[0].key, 'c');
+        assert_eq!(
+            macros[0].steps,
+            vec![
+                MacroStep::command("help"),
+                MacroStep::command("submit approve"),
+            ]
+        );
+        assert!(outcome.warnings.is_empty());
+    }
+
+    #[test]
+    fn should_strip_leading_colon_from_macro_command() {
+        let outcome = parse_config(
+            r#"
+[[macros]]
+key = "a"
+steps = [{ command = ":submit approve" }]
+"#,
+        );
+        let macros = &outcome.config.as_ref().expect("config").macros;
+        assert_eq!(macros[0].steps, vec![MacroStep::command("submit approve")]);
+        assert!(outcome.warnings.is_empty());
+    }
+
+    #[test]
+    fn should_warn_and_ignore_multi_character_macro_key() {
+        let outcome = parse_config(
+            r#"
+[[macros]]
+key = "ca"
+steps = [{ command = "help" }]
+"#,
+        );
+        assert!(outcome.config.as_ref().expect("config").macros.is_empty());
+        assert!(
+            outcome
+                .warnings
+                .iter()
+                .any(|w| w.contains("must be a single character"))
+        );
+    }
+
+    #[test]
+    fn should_warn_and_ignore_reserved_at_macro_key() {
+        let outcome = parse_config(
+            r#"
+[[macros]]
+key = "@"
+steps = [{ command = "help" }]
+"#,
+        );
+        assert!(outcome.config.as_ref().expect("config").macros.is_empty());
+        assert!(
+            outcome
+                .warnings
+                .iter()
+                .any(|w| w.contains("cannot be '@'"))
+        );
+    }
+
+    #[test]
+    fn should_let_later_duplicate_macro_key_win() {
+        let outcome = parse_config(
+            r#"
+[[macros]]
+key = "c"
+steps = [{ command = "help" }]
+
+[[macros]]
+key = "c"
+steps = [{ command = "version" }]
+"#,
+        );
+        let macros = &outcome.config.as_ref().expect("config").macros;
+        assert_eq!(macros.len(), 1);
+        assert_eq!(
+            macros[0].steps,
+            vec![MacroStep::command("version")]
+        );
+        assert!(
+            outcome
+                .warnings
+                .iter()
+                .any(|w| w.contains("Duplicate macro key 'c'"))
+        );
+    }
+
+    #[test]
+    fn should_warn_on_unknown_macro_step_field_and_keep_known() {
+        let outcome = parse_config(
+            r#"
+[[macros]]
+key = "x"
+steps = [{ command = "help", typo = true }]
+"#,
+        );
+        let macros = &outcome.config.as_ref().expect("config").macros;
+        assert_eq!(macros[0].steps, vec![MacroStep::command("help")]);
+        assert!(
+            outcome
+                .warnings
+                .iter()
+                .any(|w| w.contains("Unknown key 'macros[0].steps[0].typo'"))
+        );
+    }
+
+    #[test]
+    fn should_parse_explicit_action_form() {
+        let outcome = parse_config(
+            r#"
+[[macros]]
+key = "c"
+steps = [
+  { action = "command", cmd = "help" },
+  { action = "command", cmd = "submit approve" },
+]
+"#,
+        );
+        let macros = &outcome.config.as_ref().expect("config").macros;
+        assert_eq!(
+            macros[0].steps,
+            vec![
+                MacroStep::command("help"),
+                MacroStep::command("submit approve"),
+            ]
+        );
+        assert!(outcome.warnings.is_empty());
+    }
+
+    #[test]
+    fn should_warn_on_unknown_macro_action() {
+        let outcome = parse_config(
+            r#"
+[[macros]]
+key = "c"
+steps = [{ action = "fly_to_moon", fuel = "lots" }]
+"#,
+        );
+        assert!(outcome.config.as_ref().expect("config").macros.is_empty());
+        assert!(
+            outcome
+                .warnings
+                .iter()
+                .any(|w| w.contains("unknown value \"fly_to_moon\""))
+        );
+    }
+
+    #[test]
+    fn should_warn_on_removed_add_review_comment_step() {
+        let outcome = parse_config(
+            r#"
+[[macros]]
+key = "c"
+steps = [{ add_review_comment = "LGTM" }]
+"#,
+        );
+        assert!(outcome.config.as_ref().expect("config").macros.is_empty());
+        assert!(
+            outcome
+                .warnings
+                .iter()
+                .any(|w| w.contains("must be exactly one of action=… or command=…"))
+        );
+    }
+
+    #[test]
+    fn should_default_macros_to_empty() {
+        let outcome = parse_config("theme = \"dark\"\n");
+        assert!(outcome.config.as_ref().expect("config").macros.is_empty());
+    }
+
+    #[test]
+    fn should_keep_case_sensitive_macro_keys_distinct() {
+        let outcome = parse_config(
+            r#"
+[[macros]]
+key = "c"
+steps = [{ command = "help" }]
+
+[[macros]]
+key = "C"
+steps = [{ command = "version" }]
+"#,
+        );
+        let macros = &outcome.config.as_ref().expect("config").macros;
+        assert_eq!(macros.len(), 2);
+        assert_eq!(macros[0].key, 'c');
+        assert_eq!(macros[1].key, 'C');
+        assert!(outcome.warnings.is_empty());
     }
 }

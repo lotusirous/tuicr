@@ -82,7 +82,7 @@ pub fn render_help(frame: &mut Frame, app: &mut App) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let help_text = vec![
+    let mut help_text = vec![
         Line::from(Span::styled(
             "Navigation",
             Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
@@ -245,6 +245,33 @@ pub fn render_help(frame: &mut Frame, app: &mut App) {
                 Style::default().add_modifier(Modifier::BOLD),
             ),
             Span::raw("Hide list + focus diff"),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Macros (config.toml [[macros]])",
+            Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                "  @c        ",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Run macro bound to register c"),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "  @@        ",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Replay last macro"),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "  Esc       ",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Cancel pending @"),
         ]),
         Line::from(""),
         Line::from(Span::styled(
@@ -954,6 +981,30 @@ pub fn render_help(frame: &mut Frame, app: &mut App) {
             Span::raw("Toggle this help"),
         ]),
     ];
+
+    // List user-configured macros under the Macros section.
+    let configured = app.macro_help_rows();
+    if !configured.is_empty()
+        && let Some(idx) = help_text.iter().rposition(|line| {
+            line.spans
+                .iter()
+                .any(|s| s.content.as_ref() == "Cancel pending @")
+        })
+    {
+        let rows: Vec<Line> = configured
+            .into_iter()
+            .map(|(key, summary)| {
+                Line::from(vec![
+                    Span::styled(
+                        format!("  @{key:<9}"),
+                        Style::default().add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(summary),
+                ])
+            })
+            .collect();
+        help_text.splice(idx + 1..idx + 1, rows);
+    }
 
     // Update help state with total lines and viewport height
     let total_lines = help_text.len();

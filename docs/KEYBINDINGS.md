@@ -150,6 +150,16 @@ take over the screen and tuicr reloads the diff once they exit. Windowed editors
 screen; reload with `:e` after editing. Adding `--wait` to `$EDITOR` opts a windowed
 editor back into the blocking behaviour.
 
+## Macros
+
+Config-defined macros (no recording). See [CONFIG.md](CONFIG.md#macros).
+
+| Key | Action |
+|-----|--------|
+| `@` then register | Run the macro bound to that character (e.g. `@c`) |
+| `@@` | Replay the last macro that was started |
+| `Esc` (after `@`) | Cancel pending `@` |
+
 ## Visual mode
 
 | Key | Action |

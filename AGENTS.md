@@ -18,7 +18,8 @@ src/
 ├── config/
 │   └── mod.rs           # User config loading (XDG on Unix, %APPDATA% on Windows)
 ├── app.rs               # Application state (App struct, InputMode, etc.)
-│   └── file_filter.rs   # File-tree include/exclude regex filters + `/` path search
+│   ├── file_filter.rs   # File-tree include/exclude regex filters + `/` path search
+│   └── macros.rs        # Config [[macros]]: `@` / `@@` runner
 ├── error.rs             # Error types (TuicrError enum)
 ├── editor.rs            # External $EDITOR command construction and launch helpers
 ├── review_store.rs      # Library API for session listing/loading and shared comment insertion
@@ -186,8 +187,9 @@ Repository-managed agent integrations:
 
 **Action** (`src/input/keybindings.rs`):
 
-- All possible user actions (ScrollDown, NextFile, ToggleReviewed, AddLineComment, etc.)
+- All possible user actions (ScrollDown, NextFile, ToggleReviewed, AddLineComment, PendingAtCommand, etc.)
 - `map_key_to_action(key, mode)` returns the appropriate Action
+- Config `[[macros]]` run via `@` + register (`@@` replays last); steps are colon commands. See `src/app/macros.rs` and docs/CONFIG.md
 
 ### Data Flow
 

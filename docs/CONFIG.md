@@ -48,6 +48,13 @@ diff_watch_interval_ms = 0
 
 backend = "libgit2"
 
+[[macros]]
+key = "c"
+steps = [
+  { command = "help" },
+  { command = "submit approve" },
+]
+
 comment_types = [
   { id = "note", label = "question", definition = "ask for clarification", color = "yellow" },
   { id = "suggestion", definition = "possible improvements" },
@@ -101,8 +108,51 @@ legend = true
 | `username`                 | `"user"`     | Display name stamped on local comments and used as the viewer identity for local comment coloring.                                                         |
 | `diff_watch_interval_ms`   | `0`          | Poll interval for re-reading the local diff so uncommitted changes show without `:e`. The same tick refreshes the commit pane, including the "Staged changes" and "Unstaged changes" rows. `0` (default) disables it. Ignored for PR and `--all-files` reviews. |
 | `backend`                  | `libgit2`    | Git backend: `libgit2` or `cli`. Sparse-checkout repos auto-route to `cli`.                                                                                |
+| `macros`                   | (none)       | Config-defined macros run with `@` + register (`@@` replays last). See [Macros](#macros).                                                                  |
 | `comment_types`            | (none)       | Comment categories. Untyped by default. See [Comment types](#comment-types).                                                                               |
 | `export_legend`            | `true`       | Include the `Comment types:` legend in the exported review. Superseded by `legend` under [Export](#export).                                                |
+
+## Macros
+
+Define reusable step sequences in `config.toml` and run them with vim-style `@` + register (no recording). Leader bindings such as `;c` are unchanged.
+
+```toml
+[[macros]]
+key = "c"
+steps = [
+  { command = "help" },
+  { command = "submit approve" },
+]
+```
+
+| Keys | Effect |
+| ---- | ------ |
+| `@c` | Run the macro whose `key` is `c` |
+| `@@` | Replay the last macro that was started |
+| `Esc` (after `@`) | Cancel pending `@` |
+
+Each `[[macros]]` entry:
+
+- `key` — exactly one character (case-sensitive). `@` is reserved for `@@`.
+- `steps` — ordered list of step tables. Each step runs a colon command:
+
+  Explicit form:
+
+  ```toml
+  { action = "command", cmd = "submit approve" }
+  ```
+
+  Shorthand (same meaning):
+
+  ```toml
+  { command = "submit approve" }
+  ```
+
+| Action | Params | Effect |
+| ------ | ------ | ------ |
+| `command` | `cmd` | Run a colon command (leading `:` optional). |
+
+Invalid entries warn and are ignored. Duplicate `key`s: last wins (with a warning). No macros are shipped by default. Macros only compose colon commands, so new capabilities grow the command registry, not a parallel macro-action set.
 
 ## Themes
 

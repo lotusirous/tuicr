@@ -1326,6 +1326,12 @@ pub struct App {
     pub up_released_since_arm: bool,
     pub cursor_line_highlight: bool,
     pub leader_key: char,
+    /// Config-defined `@` macros keyed by register character.
+    pub macros: HashMap<char, Vec<crate::config::MacroStep>>,
+    /// True while waiting for the register character after `@`.
+    pub pending_at: bool,
+    /// Last macro register started (for `@@`), even if steps later failed.
+    pub last_macro_register: Option<char>,
     pub scroll_offset: usize,
     pub file_list_area: Option<ratatui::layout::Rect>,
     pub comment_navigator_area: Option<ratatui::layout::Rect>,
@@ -1762,6 +1768,7 @@ mod diff_load;
 mod file_filter;
 mod gaps;
 mod init;
+mod macros;
 mod modes;
 mod navigation;
 mod pr;

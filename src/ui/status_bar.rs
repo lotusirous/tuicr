@@ -262,7 +262,9 @@ pub fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         let mode_str = match app.input_mode {
             InputMode::Normal => {
-                if let Some(count) = app.pending_count {
+                if app.pending_at {
+                    " @ ".to_string()
+                } else if let Some(count) = app.pending_count {
                     format!(" NORMAL {count} ")
                 } else {
                     " NORMAL ".to_string()
@@ -296,6 +298,8 @@ pub fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
 
         let hints: Cow<'static, str> = if app.message.is_some() {
             Cow::Borrowed("")
+        } else if app.pending_at {
+            Cow::Borrowed("   type register \u{00b7} @@ replay last \u{00b7} esc cancel")
         } else if app.file_tree_prompt_editing() {
             // File-tree prompts are a sub-state of Normal, so the mode chip
             // still reads NORMAL; the hint is what tells the user Enter/Esc
